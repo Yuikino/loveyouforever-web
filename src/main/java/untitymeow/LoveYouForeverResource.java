@@ -1,16 +1,5 @@
 package untitymeow;
 
-import io.netty.bootstrap.Bootstrap;
-import io.netty.bootstrap.ServerBootstrap;
-import io.netty.channel.*;
-import io.netty.channel.nio.NioEventLoopGroup;
-import io.netty.channel.socket.SocketChannel;
-import io.netty.channel.socket.nio.NioDatagramChannel;
-import io.netty.channel.socket.nio.NioServerSocketChannel;
-import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
-import io.netty.handler.codec.LengthFieldPrepender;
-import untitymeow.handler.TestHandler;
-import untitymeow.handler.TestHandlerUdp;
 import untitymeow.model.Danmaku;
 import untitymeow.retrofit.*;
 
@@ -31,9 +20,6 @@ public class LoveYouForeverResource {
 
     @Inject
     EntityManager entityManager;
-
-    private EventLoopGroup bossGroup;
-    private EventLoopGroup workerGroup;
 
     @Path("/listDanmakus/{scene}")
     @GET
@@ -69,8 +55,8 @@ public class LoveYouForeverResource {
             List<CountedDanmaku> list = new ArrayList<>();
             for (Object[] objects : list0) {
                 CountedDanmaku countedDanmaku = new CountedDanmaku();
-                countedDanmaku.text = (String)objects[0];
-                countedDanmaku.count = ((Number)objects[1]).intValue();
+                countedDanmaku.text = (String) objects[0];
+                countedDanmaku.count = ((Number) objects[1]).intValue();
                 list.add(countedDanmaku);
             }
             result.setList(list.toArray(new CountedDanmaku[list.size()]));
@@ -88,91 +74,74 @@ public class LoveYouForeverResource {
     public Result addDanmaku(AddDanmaku addDanmaku) {
         Result result = new Result();
         try {
-            Danmaku danmaku = new Danmaku();
-            danmaku.setUuid(UUID.randomUUID().toString());
-            danmaku.setScene(addDanmaku.scene);
-            danmaku.setTime(addDanmaku.time);
-            danmaku.setText(addDanmaku.text);
-            entityManager.persist(danmaku);
-            result.setStatus("ok");
-        } catch (Exception e) {
-            e.printStackTrace();
-            result.setStatus("failed");
-        }
-        return result;
-    }
-
-    @Path("/startUdpServer")
-    @GET
-    public Result startUdpServer() {
-        Result result = new Result();
-        try {
-            ChannelWrapper channelWrapper = new ChannelWrapper();
-            bossGroup = new NioEventLoopGroup();
-            Bootstrap b = new Bootstrap()
-                    .group(bossGroup)
-                    .channel(NioDatagramChannel.class)
-                    .option(ChannelOption.SO_BROADCAST, true)
-                    .handler(new ChannelInitializer() {
-                        @Override
-                        protected void initChannel(Channel ch) throws Exception {
-                            ch.pipeline()
-                                    .addLast(new TestHandlerUdp(channelWrapper));
-                        }
-                    });
-            ChannelFuture f = b.bind(2887).sync();
-            Channel ch = f.channel();
-            channelWrapper.setChannel(ch);
-            result.setStatus("ok");
-        } catch (Exception e) {
-            e.printStackTrace();
-            result.setStatus("failed");
-        }
-        return result;
-    }
-
-    @Path("/startTcpServer")
-    @GET
-    public Result startTcpServer() {
-        Result result = new Result();
-        try {
-            bossGroup = new NioEventLoopGroup();
-            workerGroup = new NioEventLoopGroup();
-            ServerBootstrap b = new ServerBootstrap()
-                    .group(bossGroup, workerGroup)
-                    .channel(NioServerSocketChannel.class)
-                    .childHandler(new ChannelInitializer<SocketChannel>() {
-                        @Override
-                        protected void initChannel(SocketChannel ch) throws Exception {
-                            ch.pipeline()
-                                    .addLast(new LengthFieldBasedFrameDecoder(Short.MAX_VALUE, 0, 2, 0, 2))
-                                    .addLast(new LengthFieldPrepender(2))
-                                    .addLast(new TestHandler());
-                        }
-                    })
-                    .option(ChannelOption.SO_BACKLOG, 128)
-                    .childOption(ChannelOption.SO_KEEPALIVE, true);
-            ChannelFuture f = b.bind(9527).sync();
-            result.setStatus("ok");
-        } catch (Exception e) {
-            e.printStackTrace();
-            result.setStatus("failed");
-        }
-        return result;
-    }
-
-    @Path("/stopServer")
-    @GET
-    public Result stopServer() {
-        Result result = new Result();
-        try {
-            if (bossGroup != null) {
-                bossGroup.shutdownGracefully();
+            if (WordUtil.getStringSearch().ContainsAny(addDanmaku.text)) {
+                StringBuilder str = new StringBuilder("text contains sensitive word: ");
+                for (String s : WordUtil.getStringSearch().FindAll(addDanmaku.text)) {
+                    str.append(s);
+                    str.append(",");
+                }
+                result.setStatus(str.toString());
+            } else {
+                Danmaku danmaku = new Danmaku();
+                danmaku.setUuid(UUID.randomUUID().toString());
+                danmaku.setScene(addDanmaku.scene);
+                danmaku.setTime(addDanmaku.time);
+                danmaku.setText(addDanmaku.text);
+                entityManager.persist(danmaku);
+                result.setStatus("ok");
             }
-            if (workerGroup != null) {
-                workerGroup.shutdownGracefully();
+        } catch (Exception e) {
+            e.printStackTrace();
+            result.setStatus("failed");
+        }
+        return result;
+    }
+
+    @Path("/removeDanmaku")
+    @POST
+    @Transactional
+    public Result removeDanmaku(RemoveDanmaku removeDanmaku) {
+        Result result = new Result();
+        try {
+            if (removeDanmaku.password.equals("123456")) {
+                Query query = entityManager.createQuery("select danmaku from Danmaku danmaku " +
+                        "where danmaku.scene = :scene " +
+                        "and danmaku.text = :text")
+                        .setParameter("scene", removeDanmaku.scene)
+                        .setParameter("text", removeDanmaku.text);
+                List<Danmaku> list0 = query.getResultList();
+                for (Danmaku danmaku : list0) {
+                    entityManager.remove(danmaku);
+                }
+                result.setStatus("ok");
+            } else {
+                result.setStatus("password error");
             }
-            result.setStatus("ok");
+        } catch (Exception e) {
+            e.printStackTrace();
+            result.setStatus("failed");
+        }
+        return result;
+    }
+
+    @Path("/clearDanmakus")
+    @POST
+    @Transactional
+    public Result clearDanmakus(ClearDanmakus removeDanmaku) {
+        Result result = new Result();
+        try {
+            if (removeDanmaku.password.equals("123456")) {
+                Query query = entityManager.createQuery("select danmaku from Danmaku danmaku " +
+                        "where danmaku.scene = :scene")
+                        .setParameter("scene", removeDanmaku.scene);
+                List<Danmaku> list0 = query.getResultList();
+                for (Danmaku danmaku : list0) {
+                    entityManager.remove(danmaku);
+                }
+                result.setStatus("ok");
+            } else {
+                result.setStatus("password error");
+            }
         } catch (Exception e) {
             e.printStackTrace();
             result.setStatus("failed");
